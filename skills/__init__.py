@@ -1,3 +1,18 @@
+"""
+【文件意义】
+工具注册中心 - 统一管理所有技能的加载和导出，是 Agent 与各个工具模块之间的桥梁。
+
+在项目中的作用：
+1. 集中导入所有本地技能工具（office_skill、customer_skill、mcp_weather_skill）
+2. 集中导入所有企业级工具（task_management、email_handler、data_analyzer、schedule_manager、document_processor、logger）
+3. 提供 load_all_tools() 异步函数：统一初始化所有工具，包括需要 retriever 的客户服务工具和需要 MCP 连接的天气工具
+4. 将所有工具合并为一个列表返回，供 agent.py 直接传入 create_react_agent
+5. 提供 close_mcp_client() 函数：优雅关闭 MCP 客户端连接，释放资源
+
+设计意义：
+- 新增工具只需在此文件 import 并加入列表，无需修改 agent.py，符合开闭原则
+- 区分本地工具和远程 MCP 工具，远程工具需要异步初始化
+"""
 # skills/__init__.py
 from .office_skill import tools as office_tools
 from .customer_skill import create_customer_tools

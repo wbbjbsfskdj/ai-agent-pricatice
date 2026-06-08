@@ -1,3 +1,18 @@
+"""
+【文件意义】
+Agent 核心入口文件 - 整个 MCP Agent 项目的"大脑"，负责组装所有组件并运行对话循环。
+
+在项目中的作用：
+1. 初始化 LLM（阿里百炼 qwen-plus 模型），作为 Agent 的推理引擎
+2. 构建 RAG 向量库：加载 knowledge.txt 知识库文件，切分文本，使用 DashScope 向量化，存入 ChromaDB
+3. 加载所有工具：调用 skills/__init__.py 的 load_all_tools()，整合本地技能 + MCP 远程工具 + 企业级工具
+4. 创建 ReAct Agent：使用 LangGraph 的 create_react_agent，将 LLM + 工具 + 系统提示词组装成可执行 Agent
+5. 运行对话循环：接收用户输入 → Agent 推理 → 调用工具 → 返回结果 → 保持对话历史
+6. 系统提示词：定义 Agent 的角色、能力范围、行为准则，引导 Agent 正确使用工具
+
+项目启动流程：
+用户运行 python agent.py → 加载模型 → 构建向量库 → 加载工具 → 创建 Agent → 进入交互对话
+"""
 import os
 import sys
 import asyncio
