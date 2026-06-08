@@ -1,4 +1,19 @@
-"""企业级日程管理工具 - 支持日程创建、查询、冲突检测、提醒"""
+"""
+【文件意义】
+企业级日程管理工具 - 为 MCP Agent 提供日程创建、查询、冲突检测能力。
+
+在项目中的作用：
+1. 使 Agent 能够帮用户创建和管理日程安排，支持标题、时间、地点、参与人等字段
+2. 核心功能：日程冲突检测，检查指定时间段是否与已有日程重叠，避免时间冲突
+3. 支持按日期和状态筛选日程，方便用户快速查找
+4. 支持日程状态管理（confirmed/tentative/cancelled），模拟真实日程状态流转
+5. 提供每日日程视图，Agent 可展示用户某天的完整日程安排
+6. 通过 @tool 装饰器注册为 LangChain 工具，Agent 在对话中可自动调用
+
+使用场景示例：
+- 用户说："帮我查一下明天下午2点到4点有没有空"
+- Agent 会调用 check_schedule_conflict 工具检查时间段是否可用
+"""
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -7,6 +22,262 @@ from langchain_core.tools import tool
 
 # 内存日程存储
 _schedule_store = {}
+
+"""
+==================== Java 等价实现 ====================
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.stream.Collectors;
+
+// 日程事件实体类（对应 Python 的 ScheduleEvent 类）
+public class ScheduleEvent {
+    private String id;
+    private String title;
+    private String startTime;     // YYYY-MM-DD HH:MM
+    private String endTime;
+    private String description;
+    private String location;
+    private List<String> attendees;
+    private int reminderMinutes;
+    private String status;        // confirmed, tentative, cancelled
+    private String createdAt;
+
+    public ScheduleEvent(String title, String startTime, String endTime,
+                         String description, String location,
+                         List<String> attendees, int reminderMinutes) {
+        this.id = UUID.randomUUID().toString().substring(0, 8);
+        this.title = title;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.description = description;
+        this.location = location;
+        this.attendees = attendees != null ? attendees : new ArrayList<>();
+        this.reminderMinutes = reminderMinutes;
+        this.status = "confirmed";
+        this.createdAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+    }
+
+    // getter/setter 省略...
+
+    public Map<String, Object> toDict() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", id);
+        map.put("title", title);
+        map.put("start_time", startTime);
+        map.put("end_time", endTime);
+        map.put("description", description);
+        map.put("location", location);
+        map.put("attendees", attendees);
+        map.put("reminder_minutes", reminderMinutes);
+        map.put("status", status);
+        map.put("created_at", createdAt);
+        return map;
+    }
+}
+
+// 日程管理器（对应 Python 的全局 _schedule_store 和工具函数）
+public class ScheduleManager {
+    private static final Map<String, ScheduleEvent> SCHEDULE_STORE = new HashMap<>();
+
+    // 对应 Python 的 _parse_time 函数
+    private static LocalDateTime parseTime(String timeStr) {
+        try {
+            return LocalDateTime.parse(timeStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        } catch (DateTimeParseException e) {
+            try {
+                return LocalDateTime.parse(timeStr, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            } catch (DateTimeParseException e2) {
+                throw new IllegalArgumentException("时间格式不正确: " + timeStr + "，请使用 YYYY-MM-DD HH:MM");
+            }
+        }
+    }
+
+    // 对应 Python 的 create_schedule 函数
+    public static String createSchedule(String title, String startTime, String endTime,
+                                        String description, String location,
+                                        String attendees, int reminderMinutes) {
+        try {
+            LocalDateTime start = parseTime(startTime);
+            LocalDateTime end = parseTime(endTime);
+
+            if (!end.isAfter(start)) {
+                return "结束时间必须晚于开始时间。";
+            }
+
+            List<String> attendeeList = new ArrayList<>();
+            if (attendees != null && !attendees.isEmpty()) {
+                attendeeList = Arrays.stream(attendees.split(","))
+                        .map(String::trim)
+                        .filter(a -> !a.isEmpty())
+                        .collect(Collectors.toList());
+            }
+
+            ScheduleEvent event = new ScheduleEvent(title, startTime, endTime,
+                    description, location, attendeeList, reminderMinutes);
+            SCHEDULE_STORE.put(event.getId(), event);
+
+            return "日程创建成功！ID: " + event.getId() + "\n" + toJson(event.toDict());
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    // 对应 Python 的 get_schedule 函数
+    public static String getSchedule(String eventId) {
+        ScheduleEvent event = SCHEDULE_STORE.get(eventId);
+        if (event == null) {
+            return "未找到日程: " + eventId;
+        }
+        return toJson(event.toDict());
+    }
+
+    // 对应 Python 的 list_schedules 函数
+    public static String listSchedules(String date, String status) {
+        List<ScheduleEvent> events = new ArrayList<>(SCHEDULE_STORE.values());
+
+        if (date != null && !date.isEmpty()) {
+            events = events.stream()
+                    .filter(e -> e.getStartTime().startsWith(date))
+                    .collect(Collectors.toList());
+        }
+        if (status != null && !status.isEmpty()) {
+            events = events.stream()
+                    .filter(e -> e.getStatus().equals(status))
+                    .collect(Collectors.toList());
+        }
+
+        if (events.isEmpty()) {
+            return "未找到符合条件的日程。";
+        }
+
+        // 按时间排序
+        events.sort(Comparator.comparing(ScheduleEvent::getStartTime));
+
+        StringBuilder result = new StringBuilder("共 " + events.size() + " 个日程:\n");
+        for (ScheduleEvent e : events) {
+            result.append(String.format("[%s - %s] %s (ID: %s) | 地点: %s\n",
+                    e.getStartTime(), e.getEndTime(), e.getTitle(),
+                    e.getId(), e.getLocation().isEmpty() ? "未指定" : e.getLocation()));
+        }
+        return result.toString();
+    }
+
+    // 对应 Python 的 check_schedule_conflict 函数
+    public static String checkScheduleConflict(String startTime, String endTime, String excludeId) {
+        try {
+            LocalDateTime newStart = parseTime(startTime);
+            LocalDateTime newEnd = parseTime(endTime);
+
+            List<Map<String, Object>> conflicts = new ArrayList<>();
+            for (ScheduleEvent event : SCHEDULE_STORE.values()) {
+                if (event.getId().equals(excludeId) || event.getStatus().equals("cancelled")) {
+                    continue;
+                }
+
+                LocalDateTime eventStart = parseTime(event.getStartTime());
+                LocalDateTime eventEnd = parseTime(event.getEndTime());
+
+                // 检查时间重叠：新开始 < 已有结束 且 新结束 > 已有开始
+                if (newStart.isBefore(eventEnd) && newEnd.isAfter(eventStart)) {
+                    conflicts.add(event.toDict());
+                }
+            }
+
+            if (!conflicts.isEmpty()) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("has_conflict", true);
+                result.put("conflicts", conflicts);
+                return toJson(result);
+            } else {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("has_conflict", false);
+                result.put("message", "时间段可用，无冲突");
+                return toJson(result);
+            }
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    // 对应 Python 的 update_schedule 函数
+    public static String updateSchedule(String eventId, String title, String startTime,
+                                        String endTime, String description, String location,
+                                        String attendees, String status) {
+        ScheduleEvent event = SCHEDULE_STORE.get(eventId);
+        if (event == null) {
+            return "未找到日程: " + eventId;
+        }
+
+        try {
+            if (title != null && !title.isEmpty()) event.setTitle(title);
+            if (startTime != null && !startTime.isEmpty()) event.setStartTime(startTime);
+            if (endTime != null && !endTime.isEmpty()) event.setEndTime(endTime);
+            if (description != null && !description.isEmpty()) event.setDescription(description);
+            if (location != null && !location.isEmpty()) event.setLocation(location);
+            if (attendees != null && !attendees.isEmpty()) {
+                event.setAttendees(Arrays.stream(attendees.split(","))
+                        .map(String::trim)
+                        .filter(a -> !a.isEmpty())
+                        .collect(Collectors.toList()));
+            }
+            if (status != null && !status.isEmpty()) event.setStatus(status);
+
+            return "日程更新成功！\n" + toJson(event.toDict());
+        } catch (IllegalArgumentException e) {
+            return e.getMessage();
+        }
+    }
+
+    // 对应 Python 的 delete_schedule 函数
+    public static String deleteSchedule(String eventId) {
+        if (!SCHEDULE_STORE.containsKey(eventId)) {
+            return "未找到日程: " + eventId;
+        }
+        SCHEDULE_STORE.remove(eventId);
+        return "日程 " + eventId + " 已删除。";
+    }
+
+    // 对应 Python 的 get_daily_schedule 函数
+    public static String getDailySchedule(String date) {
+        List<ScheduleEvent> events = SCHEDULE_STORE.values().stream()
+                .filter(e -> e.getStartTime().startsWith(date) && !e.getStatus().equals("cancelled"))
+                .sorted(Comparator.comparing(ScheduleEvent::getStartTime))
+                .collect(Collectors.toList());
+
+        if (events.isEmpty()) {
+            return date + " 没有日程安排。";
+        }
+
+        StringBuilder result = new StringBuilder("📅 " + date + " 日程安排：\n");
+        for (ScheduleEvent e : events) {
+            String startHour = e.getStartTime().contains(" ")
+                    ? e.getStartTime().split(" ")[1] : "全天";
+            String endHour = e.getEndTime().contains(" ")
+                    ? e.getEndTime().split(" ")[1] : "";
+            result.append(String.format("⏰ %s - %s\n", startHour, endHour));
+            result.append(String.format("   %s\n", e.getTitle()));
+            if (!e.getLocation().isEmpty()) {
+                result.append(String.format("   📍 %s\n", e.getLocation()));
+            }
+            if (!e.getAttendees().isEmpty()) {
+                result.append(String.format("   👥 %s\n", String.join(", ", e.getAttendees())));
+            }
+            result.append("\n");
+        }
+        return result.toString();
+    }
+
+    private static String toJson(Map<?, ?> map) {
+        // 实际项目中使用 Jackson/Gson
+        return "";
+    }
+}
+
+======================================================
+"""
 
 
 class ScheduleEvent:

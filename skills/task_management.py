@@ -1,4 +1,18 @@
-"""企业级任务管理工具 - 支持任务创建、查询、更新、删除、优先级管理"""
+"""
+【文件意义】
+企业级任务管理工具 - 为 MCP Agent 提供完整的任务管理能力。
+
+在项目中的作用：
+1. 作为 Agent 的核心工具之一，使 Agent 能够帮用户创建、查询、更新、删除任务
+2. 支持任务优先级管理（low/medium/high/urgent），让 Agent 能协助用户进行任务优先级排序
+3. 支持任务状态流转（pending → in_progress → completed → cancelled），模拟企业工作流
+4. 支持任务标签和负责人分配，贴合企业团队协作场景
+5. 通过 @tool 装饰器注册为 LangChain 工具，Agent 在对话中可自动调用这些函数
+
+使用场景示例：
+- 用户说："帮我创建一个明天截止的高优先级任务：完成季度报告"
+- Agent 会调用 create_schedule 工具创建任务并返回结果
+"""
 import json
 import uuid
 from datetime import datetime
@@ -7,6 +21,187 @@ from langchain_core.tools import tool
 
 # 内存任务存储（生产环境应使用数据库）
 _task_store = {}
+
+"""
+==================== Java 等价实现 ====================
+
+// 对应的 Java 类
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class Task {
+    private String id;
+    private String title;
+    private String description;
+    private String priority;      // low, medium, high, urgent
+    private String status;        // pending, in_progress, completed, cancelled
+    private String assignee;
+    private String dueDate;       // YYYY-MM-DD
+    private List<String> tags;
+    private String createdAt;
+    private String updatedAt;
+
+    public Task(String title, String description, String priority,
+                String assignee, String dueDate, List<String> tags) {
+        this.id = UUID.randomUUID().toString().substring(0, 8);
+        this.title = title;
+        this.description = description;
+        this.priority = priority;
+        this.status = "pending";
+        this.assignee = assignee;
+        this.dueDate = dueDate;
+        this.tags = tags != null ? tags : new ArrayList<>();
+        this.createdAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        this.updatedAt = this.createdAt;
+    }
+
+    // getter/setter 省略...
+
+    public Map<String, Object> toDict() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", id);
+        map.put("title", title);
+        map.put("description", description);
+        map.put("priority", priority);
+        map.put("status", status);
+        map.put("assignee", assignee);
+        map.put("due_date", dueDate);
+        map.put("tags", tags);
+        map.put("created_at", createdAt);
+        map.put("updated_at", updatedAt);
+        return map;
+    }
+}
+
+// 任务管理器（对应 Python 的全局 _task_store 和工具函数）
+public class TaskManager {
+    private static final Map<String, Task> TASK_STORE = new HashMap<>();
+
+    // 对应 Python 的 create_task 函数
+    public static String createTask(String title, String description, String priority,
+                                    String assignee, String dueDate, String tags) {
+        List<String> tagList = new ArrayList<>();
+        if (tags != null && !tags.isEmpty()) {
+            tagList = Arrays.stream(tags.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .collect(Collectors.toList());
+        }
+        Task task = new Task(title, description, priority, assignee, dueDate, tagList);
+        TASK_STORE.put(task.getId(), task);
+        return "任务创建成功！ID: " + task.getId() + "\n" + toJson(task.toDict());
+    }
+
+    // 对应 Python 的 get_task 函数
+    public static String getTask(String taskId) {
+        Task task = TASK_STORE.get(taskId);
+        if (task == null) {
+            return "未找到任务: " + taskId;
+        }
+        return toJson(task.toDict());
+    }
+
+    // 对应 Python 的 list_tasks 函数
+    public static String listTasks(String status, String priority, String assignee, String tag) {
+        List<Task> tasks = new ArrayList<>(TASK_STORE.values());
+
+        if (status != null && !status.isEmpty()) {
+            tasks = tasks.stream().filter(t -> t.getStatus().equals(status)).collect(Collectors.toList());
+        }
+        if (priority != null && !priority.isEmpty()) {
+            tasks = tasks.stream().filter(t -> t.getPriority().equals(priority)).collect(Collectors.toList());
+        }
+        if (assignee != null && !assignee.isEmpty()) {
+            tasks = tasks.stream().filter(t -> t.getAssignee().equals(assignee)).collect(Collectors.toList());
+        }
+        if (tag != null && !tag.isEmpty()) {
+            tasks = tasks.stream().filter(t -> t.getTags().contains(tag)).collect(Collectors.toList());
+        }
+
+        if (tasks.isEmpty()) {
+            return "未找到符合条件的任务。";
+        }
+
+        StringBuilder result = new StringBuilder("共 " + tasks.size() + " 个任务:\n");
+        for (Task t : tasks) {
+            result.append(String.format("[%s] [%s] %s (ID: %s) - 负责人: %s\n",
+                    t.getPriority().toUpperCase(), t.getStatus(), t.getTitle(),
+                    t.getId(), t.getAssignee().isEmpty() ? "未分配" : t.getAssignee()));
+        }
+        return result.toString();
+    }
+
+    // 对应 Python 的 update_task 函数
+    public static String updateTask(String taskId, String title, String description,
+                                    String priority, String status, String assignee,
+                                    String dueDate, String tags) {
+        Task task = TASK_STORE.get(taskId);
+        if (task == null) {
+            return "未找到任务: " + taskId;
+        }
+        if (title != null && !title.isEmpty()) task.setTitle(title);
+        if (description != null && !description.isEmpty()) task.setDescription(description);
+        if (priority != null && !priority.isEmpty()) task.setPriority(priority);
+        if (status != null && !status.isEmpty()) task.setStatus(status);
+        if (assignee != null && !assignee.isEmpty()) task.setAssignee(assignee);
+        if (dueDate != null && !dueDate.isEmpty()) task.setDueDate(dueDate);
+        if (tags != null && !tags.isEmpty()) {
+            task.setTags(Arrays.stream(tags.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .collect(Collectors.toList()));
+        }
+        task.setUpdatedAt(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        return "任务更新成功！\n" + toJson(task.toDict());
+    }
+
+    // 对应 Python 的 delete_task 函数
+    public static String deleteTask(String taskId) {
+        if (!TASK_STORE.containsKey(taskId)) {
+            return "未找到任务: " + taskId;
+        }
+        TASK_STORE.remove(taskId);
+        return "任务 " + taskId + " 已删除。";
+    }
+
+    // 对应 Python 的 get_task_stats 函数
+    public static String getTaskStats() {
+        List<Task> tasks = new ArrayList<>(TASK_STORE.values());
+        if (tasks.isEmpty()) {
+            return "当前没有任务。";
+        }
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total", tasks.size());
+        Map<String, Integer> byStatus = new HashMap<>();
+        Map<String, Integer> byPriority = new HashMap<>();
+        int overdue = 0;
+        String today = LocalDateTime.now().toLocalDate().toString();
+
+        for (Task t : tasks) {
+            byStatus.merge(t.getStatus(), 1, Integer::sum);
+            byPriority.merge(t.getPriority(), 1, Integer::sum);
+            if (t.getDueDate() != null && t.getDueDate().compareTo(today) < 0
+                    && !t.getStatus().equals("completed") && !t.getStatus().equals("cancelled")) {
+                overdue++;
+            }
+        }
+        stats.put("by_status", byStatus);
+        stats.put("by_priority", byPriority);
+        stats.put("overdue", overdue);
+        return toJson(stats);
+    }
+
+    private static String toJson(Map<?, ?> map) {
+        // 实际项目中使用 Jackson/Gson 等 JSON 库
+        return "";
+    }
+}
+
+======================================================
+"""
 
 class Task:
     def __init__(self, title: str, description: str = "", priority: str = "medium",
